@@ -54,11 +54,7 @@ use digest::DynDigest;
 use hmac_sha256::Hash as Sha256;
 use hmac_sha512::sha384::Hash as Sha384;
 use hmac_sha512::Hash as Sha512;
-use num_integer::Integer;
 use num_padding::ToBytesPadded;
-use num_traits::One;
-use rand::{CryptoRng, Rng, RngCore};
-use rsa::algorithms::mgf1_xor;
 use rsa::internals as rsa_internals;
 use rsa::pkcs1::{DecodeRsaPrivateKey as _, DecodeRsaPublicKey as _};
 use rsa::pkcs8::{
@@ -203,21 +199,6 @@ impl AsRef<[u8]> for Signature {
     }
 }
 
-impl KeyPair {
-    /// Generate a new key pair
-    pub fn generate<R: CryptoRng + RngCore>(
-        rng: &mut R,
-        modulus_bits: usize,
-    ) -> Result<KeyPair, Error> {
-        let mut sk =
-            RsaPrivateKey::new(rng, modulus_bits).map_err(|_| Error::UnsupportedParameters)?;
-        sk.precompute().map_err(|_| Error::InternalError)?;
-        let sk = SecretKey(sk);
-        let pk = sk.public_key()?;
-        Ok(KeyPair { sk, pk })
-    }
-}
-
 impl Signature {
     /// Verify that the (non-blind) signature is valid for the given public key
     /// and original message
@@ -232,37 +213,6 @@ impl Signature {
     }
 }
 
-fn emsa_pss_encode(
-    m_hash: &[u8],
-    em_bits: usize,
-    salt: &[u8],
-    hash: &mut dyn DynDigest,
-) -> Result<Vec<u8>, Error> {
-    let h_len = hash.output_size();
-    let s_len = salt.len();
-    let em_len = (em_bits + 7) / 8;
-    if m_hash.len() != h_len {
-        return Err(Error::InternalError);
-    }
-    if em_len < h_len + s_len + 2 {
-        return Err(Error::InternalError);
-    }
-    let mut em = vec![0; em_len];
-    let (db, h) = em.split_at_mut(em_len - h_len - 1);
-    let h = &mut h[..(em_len - 1) - db.len()];
-    let prefix = [0u8; 8];
-    hash.update(&prefix);
-    hash.update(m_hash);
-    hash.update(salt);
-    let hashed = hash.finalize_reset();
-    h.copy_from_slice(&hashed);
-    db[em_len - s_len - h_len - 2] = 0x01;
-    db[em_len - s_len - h_len - 1..].copy_from_slice(salt);
-    mgf1_xor(db, hash, h);
-    db[0] &= 0xff >> (8 * em_len - em_bits);
-    em[em_len - 1] = 0xbc;
-    Ok(em)
-}
 
 impl PublicKey {
     pub fn to_der(&self) -> Result<Vec<u8>, Error> {
@@ -457,77 +407,6 @@ impl PublicKey {
         Self::from_der(&der)
     }
 
-    /// Blind a message (after optional randomization) to be signed
-    pub fn blind<R: CryptoRng + RngCore>(
-        &self,
-        rng: &mut R,
-        msg: impl AsRef<[u8]>,
-        randomize_message: bool,
-        options: &Options,
-    ) -> Result<BlindingResult, Error> {
-        let msg = msg.as_ref();
-        let modulus_bytes = self.0.size();
-        let modulus_bits = modulus_bytes * 8;
-        let msg_randomizer = if randomize_message {
-            let mut noise = [0u8; 32];
-            rng.fill(&mut noise[..]);
-            Some(MessageRandomizer(noise))
-        } else {
-            None
-        };
-        let msg_hash = match options.hash {
-            Hash::Sha256 => {
-                let mut h = Sha256::new();
-                if let Some(p) = msg_randomizer.as_ref() {
-                    h.update(p.0);
-                }
-                h.update(msg);
-                h.finalize().to_vec()
-            }
-            Hash::Sha384 => {
-                let mut h = Sha384::new();
-                if let Some(p) = msg_randomizer.as_ref() {
-                    h.update(p.0);
-                }
-                h.update(msg);
-                h.finalize().to_vec()
-            }
-            Hash::Sha512 => {
-                let mut h = Sha512::new();
-                if let Some(p) = msg_randomizer.as_ref() {
-                    h.update(p.0);
-                }
-                h.update(msg);
-                h.finalize().to_vec()
-            }
-        };
-        let salt_len = options.salt_len();
-        let mut salt = vec![0u8; salt_len];
-        rng.fill(&mut salt[..]);
-
-        let padded = match options.hash {
-            Hash::Sha256 => {
-                emsa_pss_encode(&msg_hash, modulus_bits - 1, &salt, &mut Sha256::new())?
-            }
-            Hash::Sha384 => {
-                emsa_pss_encode(&msg_hash, modulus_bits - 1, &salt, &mut Sha384::new())?
-            }
-            Hash::Sha512 => {
-                emsa_pss_encode(&msg_hash, modulus_bits - 1, &salt, &mut Sha512::new())?
-            }
-        };
-        let m = BigUint::from_bytes_be(&padded);
-        if m.gcd(self.0.n()) != BigUint::one() {
-            return Err(Error::UnsupportedParameters);
-        }
-
-        let (blind_msg, secret) = rsa_internals::blind(rng, self.as_ref(), &m);
-        Ok(BlindingResult {
-            blind_msg: BlindedMessage(blind_msg.to_bytes_be_padded(modulus_bytes)),
-            secret: Secret(secret.to_bytes_be_padded(modulus_bytes)),
-            msg_randomizer,
-        })
-    }
 
     /// Compute a valid signature for the original message given a blindly
     /// signed message
@@ -639,23 +518,4 @@ impl SecretKey {
         Ok(PublicKey(RsaPublicKey::from(self.as_ref())))
     }
 
-    /// Sign a blinded message
-    pub fn blind_sign<R: CryptoRng + RngCore>(
-        &self,
-        rng: &mut R,
-        blind_msg: impl AsRef<[u8]>,
-        _options: &Options,
-    ) -> Result<BlindSignature, Error> {
-        let modulus_bytes = self.0.size();
-        if blind_msg.as_ref().len() != modulus_bytes {
-            return Err(Error::UnsupportedParameters);
-        }
-        let blind_msg = BigUint::from_bytes_be(blind_msg.as_ref());
-        if &blind_msg >= self.0.n() {
-            return Err(Error::UnsupportedParameters);
-        }
-        let blind_sig = rsa_internals::decrypt_and_check(Some(rng), self.as_ref(), &blind_msg)
-            .map_err(|_| Error::InternalError)?;
-        Ok(BlindSignature(blind_sig.to_bytes_be_padded(modulus_bytes)))
-    }
 }
