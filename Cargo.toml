@@ -12,6 +12,9 @@ categories = ["cryptography"]
 license = "MIT"
 
 [dependencies]
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = [
+	"derive",
+] }
 num-integer = "0.1.45"
 num-traits = "0.2.15"
 rand = {version = "0.8.5", default-features = false}
@@ -21,3 +24,18 @@ hmac-sha256 = { version = "1.1.6", features = ["traits010"] }
 hmac-sha512 = { version = "1.1.4", features = ["traits010", "sha384"] }
 derive-new = "0.5.9"
 derive_more = "0.99.17"
+frame-support = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.37" }
+frame-system = { version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.37" }
+
+[dev-dependencies]
+sp-core = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.37" }
+sp-io = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.37" }
+sp-runtime = { version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.37" }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"frame-support/std",
+	"frame-system/std",
+]

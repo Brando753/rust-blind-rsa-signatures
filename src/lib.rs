@@ -40,13 +40,14 @@
 //! sig.verify(&pk, blinding_result.msg_randomizer, msg, &options)?;
 //! # Ok::<(), blind_rsa_signatures::Error>(())
 //! ```
-
+#![cfg_attr(not(feature = "std"), no_std)]
 #[macro_use]
 extern crate derive_new;
 
-use std::convert::TryFrom;
-use std::fmt::{self, Display};
-use std::mem;
+use core::convert::TryFrom;
+use core::fmt::{self, Display};
+use core::mem;
+
 
 use derive_more::*;
 use digest::DynDigest;
@@ -82,7 +83,6 @@ pub enum Error {
     IncompatibleParameters,
 }
 
-impl std::error::Error for Error {}
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
