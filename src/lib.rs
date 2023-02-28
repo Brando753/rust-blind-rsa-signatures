@@ -64,7 +64,7 @@ use rsa::signature::hazmat::PrehashVerifier;
 use rsa::{BigUint, PublicKeyParts as _, RsaPrivateKey, RsaPublicKey};
 
 pub mod reexports {
-    pub use {digest, hmac_sha512, rand, rsa};
+    pub use {digest, hmac_sha512, rsa};
 }
 
 mod num_padding;
