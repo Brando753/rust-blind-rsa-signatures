@@ -29,7 +29,5 @@ frame-system = { version = "4.0.0-dev", default-features = false, git = "https:/
 [features]
 default = ["std"]
 std = [
-	"codec/std",
-	"frame-support/std",
 	"frame-system/std",
 ]
