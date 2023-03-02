@@ -1,6 +1,7 @@
 use core::iter;
 
 use rsa::BigUint;
+use frame_support::inherent::Vec;
 
 pub trait ToBytesPadded {
     /// Returns the byte representation of `self` in big-endian byte order,

@@ -40,13 +40,14 @@
 //! sig.verify(&pk, blinding_result.msg_randomizer, msg, &options)?;
 //! # Ok::<(), blind_rsa_signatures::Error>(())
 //! ```
-#![cfg_attr(not(feature = "std"), no_std)]
+#![no_std]
 #[macro_use]
 extern crate derive_new;
 
 use core::convert::TryFrom;
 use core::fmt::{self, Display};
 use core::mem;
+use frame_support::inherent::Vec;
 
 
 use derive_more::*;
@@ -248,23 +249,6 @@ impl PublicKey {
         );
         pk.check_rsa_parameters()?;
         Ok(pk)
-    }
-
-    pub fn to_pem(&self) -> Result<String, Error> {
-        self.as_ref()
-            .to_public_key_pem(Default::default())
-            .map_err(|_| Error::EncodingError)
-    }
-
-    pub fn from_pem(pem: &str) -> Result<Self, Error> {
-        if pem.len() > 1000 {
-            return Err(Error::EncodingError);
-        }
-        let pem = pem.trim();
-        Ok(rsa::RsaPublicKey::from_public_key_pem(pem)
-            .or_else(|_| rsa::RsaPublicKey::from_pkcs1_pem(pem))
-            .map_err(|_| Error::EncodingError)?
-            .into())
     }
 
     const fn spki_tpl() -> &'static [u8] {
@@ -492,22 +476,6 @@ impl SecretKey {
     pub fn from_der(der: &[u8]) -> Result<Self, Error> {
         let mut sk = rsa::RsaPrivateKey::from_pkcs8_der(der)
             .or_else(|_| rsa::RsaPrivateKey::from_pkcs1_der(der))
-            .map_err(|_| Error::EncodingError)?;
-        sk.validate().map_err(|_| Error::InvalidKey)?;
-        sk.precompute().map_err(|_| Error::InvalidKey)?;
-        Ok(SecretKey(sk))
-    }
-
-    pub fn to_pem(&self) -> Result<String, Error> {
-        self.as_ref()
-            .to_pkcs8_pem(Default::default())
-            .map_err(|_| Error::EncodingError)
-            .map(|x| x.to_string())
-    }
-
-    pub fn from_pem(pem: &str) -> Result<Self, Error> {
-        let mut sk = rsa::RsaPrivateKey::from_pkcs8_pem(pem)
-            .or_else(|_| rsa::RsaPrivateKey::from_pkcs1_pem(pem))
             .map_err(|_| Error::EncodingError)?;
         sk.validate().map_err(|_| Error::InvalidKey)?;
         sk.precompute().map_err(|_| Error::InvalidKey)?;
